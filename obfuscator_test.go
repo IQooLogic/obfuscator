@@ -165,18 +165,27 @@ func TestWrongPassphrase(t *testing.T) {
 func TestInvalidObfuscatedText(t *testing.T) {
 	obfuscator := New([]byte("testPassphrase123"))
 
-	invalidInputs := []string{
-		"invalid$format$string",
-		"$invalid$format",
-		"$o1$not$enough$parts",
-		"",
+	invalidInputs := []struct {
+		name  string
+		input string
+	}{
+		{"invalid format", "invalid$format$string"},
+		{"missing parts", "$invalid$format"},
+		{"not enough parts", "$o1$not$enough$parts"},
+		{"empty string", ""},
+		{"invalid base64 salt", "$o1$not-valid-base64$validiv$validcipher"},
+		{"invalid base64 iv", "$o1$" + base64.StdEncoding.EncodeToString([]byte("salt")) + "$not-valid-base64$validcipher"},
+		{"invalid base64 cipher", "$o1$" + base64.StdEncoding.EncodeToString([]byte("salt")) + "$" +
+			base64.StdEncoding.EncodeToString([]byte("iv")) + "$not-valid-base64"},
 	}
 
-	for _, input := range invalidInputs {
-		_, err := obfuscator.Unobfuscate(input)
-		if err == nil {
-			t.Errorf("Expected error for invalid input: %q", input)
-		}
+	for _, tc := range invalidInputs {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := obfuscator.Unobfuscate(tc.input)
+			if err == nil {
+				t.Errorf("Expected error for invalid input: %q", tc.input)
+			}
+		})
 	}
 }
 
@@ -235,6 +244,64 @@ func TestNilPassphrase(t *testing.T) {
 	}()
 
 	New(nil)
+}
+
+func TestEncryptionErrors(t *testing.T) {
+	// Create a mock obfuscator with empty passphrase
+	obfuscator := New([]byte{})
+
+	// Test with a large input that might exceed memory limits
+	largeInput := strings.Repeat("a", 1<<30) // 1GB string
+	_, err := obfuscator.Obfuscate(largeInput)
+	if err != nil {
+		t.Error("Expected not to fail with a large input")
+	}
+
+	// Test with empty input
+	_, err = obfuscator.Obfuscate("")
+	if err != nil {
+		t.Errorf("Expected no error with empty input, got: %v", err)
+	}
+}
+
+func TestGenerateSaltError(t *testing.T) {
+	// Test with zero salt length to trigger potential errors
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("Expected panic with zeo salt length")
+		}
+	}()
+
+	obfuscator := New([]byte("test"), WithSaltLength(0))
+
+	_, err := obfuscator.Obfuscate("test")
+	if err == nil {
+		t.Error("Expected error with zero salt length")
+	}
+}
+
+func TestDecryptionErrors(t *testing.T) {
+	obfuscator := New([]byte("testPassphrase123"))
+
+	// Create valid obfuscated text first
+	validText, err := obfuscator.Obfuscate("test")
+	if err != nil {
+		t.Fatalf("Failed to create test data: %v", err)
+	}
+
+	parts := strings.Split(validText, DefaultSeparator)
+	if len(parts) != 5 {
+		t.Fatalf("Invalid test setup")
+	}
+
+	// Corrupt the ciphertext while keeping it base64 valid
+	corruptCipher := base64.StdEncoding.EncodeToString([]byte("corrupted"))
+	corruptText := strings.Join(parts[:4], DefaultSeparator) + DefaultSeparator + corruptCipher
+
+	_, err = obfuscator.Unobfuscate(corruptText)
+	if err == nil {
+		t.Error("Expected error with corrupted ciphertext")
+	}
 }
 
 // Benchmark tests

@@ -51,6 +51,9 @@ func New(passphrase []byte, options ...Option) Obfuscator {
 }
 
 func WithSaltLength(length uint8) Option {
+	if length == 0 {
+		panic("salt length must not be 0")
+	}
 	return func(s *Config) {
 		s.saltLength = length
 	}
