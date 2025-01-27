@@ -33,6 +33,10 @@ type Obfuscator struct {
 }
 
 func New(passphrase []byte, options ...Option) Obfuscator {
+	if passphrase == nil {
+		panic("passphrase must not be nil")
+	}
+
 	config := &Config{
 		passphrase: passphrase,
 		saltLength: SaltLength,
